@@ -17,7 +17,8 @@ const adminConfig = {
 };
 
 function createTestDatabaseName() {
-  return `soda_soft_drink_store_test_${Date.now()}`;
+  createTestDatabaseName.counter = (createTestDatabaseName.counter || 0) + 1;
+  return `soda_soft_drink_store_test_${Date.now()}_${process.pid}_${createTestDatabaseName.counter}`;
 }
 
 async function dropDatabase(databaseName) {
@@ -62,9 +63,12 @@ async function createTestDatabase() {
 }
 
 test('setupDatabase.js creates the expected PostgreSQL tables', async () => {
-  const { pool, cleanup } = await createTestDatabase();
+  let pool;
+  let cleanup;
 
   try {
+    ({ pool, cleanup } = await createTestDatabase());
+
     const { rows } = await pool.query(
       `SELECT table_name
        FROM information_schema.tables
@@ -91,14 +95,19 @@ test('setupDatabase.js creates the expected PostgreSQL tables', async () => {
     );
     assert.equal(productColumnRows[0].character_maximum_length, 150);
   } finally {
-    await cleanup();
+    if (cleanup) {
+      await cleanup();
+    }
   }
 });
 
 test('CHECK constraints reject invalid values', async () => {
-  const { pool, cleanup } = await createTestDatabase();
+  let pool;
+  let cleanup;
 
   try {
+    ({ pool, cleanup } = await createTestDatabase());
+
     // Seed a user row so FK constraints are satisfied for orders.
     const {
       rows: [user],
@@ -207,6 +216,8 @@ test('CHECK constraints reject invalid values', async () => {
       }
     );
   } finally {
-    await cleanup();
+    if (cleanup) {
+      await cleanup();
+    }
   }
 });
