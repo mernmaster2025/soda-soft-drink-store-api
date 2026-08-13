@@ -20,14 +20,17 @@ with **Swagger UI** and **Scalar**.
 soda-soft-drink-store-api/
 ├── db/            # Sequelize connection + model registry & associations
 ├── loaders/       # Express, Passport & docs (Swagger UI + Scalar) setup
+├── middleware/    # Route guards (e.g. requireAdmin)
+├── migrations/    # Numbered schema migrations — the schema source of truth
 ├── models/        # Sequelize model definitions (one per table)
 ├── resources/     # ERD diagram & shared assets
 ├── routes/        # HTTP endpoints → services
 ├── services/      # Business logic (uses the ORM models)
+├── test/          # Node test-runner suites (see TESTING.md)
 ├── config.js      # Env-driven settings
 ├── index.js       # App entry point
 ├── seed.js        # Inserts fixed product fixtures + a demo user
-├── setupDatabase.js  # Creates the database and tables
+├── setupDatabase.js  # Creates the database and runs the migrations
 └── swagger.yml    # OpenAPI spec (shared by both docs UIs)
 ```
 
@@ -47,19 +50,19 @@ npm install
 # 2. Configure environment
 cp example.env .env        # (Windows: copy example.env .env)
 # then edit .env with your PostgreSQL credentials + a JWT secret
+#   On macOS (Homebrew / Postgres.app) DB_USER is your OS username,
+#   NOT "postgres" — run `whoami`.
 
-# 3. Create the database (once), e.g. via psql:
-#    CREATE DATABASE soda_store;
-
-# 4. Run the migrations to create the schema (and later seed sample sodas)
+# 3. Create the database and run the migrations
 npm run setup-db
+#   Creates DB_NAME if it does not exist — no manual CREATE DATABASE needed.
 #   Reset everything:   node setupDatabase.js --force
 
-# 5. Seed the database with 15 fixed soda products and a demo user
+# 4. Seed the database with 15 fixed soda products and a demo user
 npm run seed
 #   Re-load fixtures from scratch:  node seed.js --reset
 
-# 6. Start the API
+# 5. Start the API
 npm start          # or: npm run dev  (auto-reload with nodemon)
 ```
 
@@ -80,12 +83,21 @@ The project uses Node's built-in test runner. Run the suite with:
 npm test
 ```
 
-The test coverage currently includes:
+A healthy run reports **11 passing, 0 failing, 0 skipped**. Coverage includes:
 
-- PostgreSQL setup verification via `setupDatabase.js`
+- Schema setup and every `CHECK` constraint, against a real database
+- The full `register → add-to-cart → checkout` flow over HTTP
+- The seed script (15 products + demo user, including `--reset`)
 - An Express smoke test for `/health` and the 404 handler
+- Auth, cart, order and user services against a mocked data layer
 
-See [TESTING.md](TESTING.md) for the full test workflow and environment notes.
+The database-backed tests create and drop their own throwaway databases, so a
+local PostgreSQL server and a role with `CREATEDB` are required. Watch the
+**skipped** count as well as the failures — the integration tests skip
+themselves when they cannot reach PostgreSQL, so `pass 9 / skipped 2` is green
+without having tested the purchase flow.
+
+See [TESTING.md](TESTING.md) for configuration, cleanup and troubleshooting.
 
 ## Linting and formatting
 
@@ -111,12 +123,23 @@ Interactive docs:
 
 See [`example.env`](example.env). Key ones:
 
-| Variable      | Purpose                    | Default                 |
-| ------------- | -------------------------- | ----------------------- |
-| `PORT`        | HTTP port                  | `4001`                  |
-| `PGHOST` etc. | PostgreSQL connection      | localhost / soda_store  |
-| `JWT_SECRET`  | Secret used to sign tokens | _change me_             |
-| `CORS_ORIGIN` | Allowed frontend origin(s) | `http://localhost:3000` |
+| Variable         | Purpose                                       | Default                 |
+| ---------------- | --------------------------------------------- | ----------------------- |
+| `PORT`           | HTTP port                                     | `4001`                  |
+| `DATABASE_URL`   | Full connection string; wins over `DB_*`      | _unset_                 |
+| `DB_USER`        | PostgreSQL role (`PGUSER` also accepted)      | `postgres`              |
+| `DB_HOST`        | PostgreSQL host (`PGHOST`)                    | `localhost`             |
+| `DB_NAME`        | Application database (`PGDATABASE`)           | `soda_store`            |
+| `DB_PASSWORD`    | PostgreSQL password (`PGPASSWORD`)            | `postgres`              |
+| `DB_PORT`        | PostgreSQL port (`PGPORT`)                    | `5432`                  |
+| `JWT_SECRET`     | Secret used to sign tokens                    | _change me_             |
+| `JWT_EXPIRES_IN` | Token lifetime                                | `1d`                    |
+| `CORS_ORIGIN`    | Allowed frontend origin(s), comma-separated   | `http://localhost:3000` |
+
+> ⚠️ `DATABASE_URL` takes precedence over the individual `DB_*` variables for
+> the application, but the **test suite reads `DB_*` / `PG*` only**. If you
+> configure with `DATABASE_URL`, set the `DB_*` variables to match or `npm test`
+> will connect elsewhere. See [TESTING.md](TESTING.md).
 
 ## API quick reference
 
