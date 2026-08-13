@@ -8,7 +8,7 @@
     "dev": "nodemon index.js",
     "setup-db": "node setupDatabase.js",
     "seed": "node seed.js",
-    "test": "node --test",
+    "test": "node --require dotenv/config --test",
     "lint": "eslint .",
     "format": "prettier --write .",
     "format-check": "prettier --check ."
