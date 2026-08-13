@@ -18,7 +18,8 @@ const adminConfig = {
 };
 
 function createTestDatabaseName() {
-  return `soda_soft_drink_store_seed_test_${Date.now()}`;
+  createTestDatabaseName.counter = (createTestDatabaseName.counter || 0) + 1;
+  return `soda_soft_drink_store_seed_test_${Date.now()}_${process.pid}_${createTestDatabaseName.counter}`;
 }
 
 async function dropDatabase(databaseName) {
@@ -35,36 +36,39 @@ async function dropDatabase(databaseName) {
 }
 
 test('seed.js inserts 15 products and a demo user into a fresh database', async () => {
-  const databaseName = createTestDatabaseName();
-  const env = { ...process.env, DB_NAME: databaseName };
-
-  // First, create the schema.
-  const setupResult = spawnSync(process.execPath, [setupScript], {
-    cwd: repoRoot,
-    env,
-    encoding: 'utf8',
-  });
-  assert.equal(
-    setupResult.status,
-    0,
-    `setupDatabase.js failed\nstdout:\n${setupResult.stdout}\nstderr:\n${setupResult.stderr}`
-  );
-
-  // Run the seed script.
-  const seedResult = spawnSync(process.execPath, [seedScript], {
-    cwd: repoRoot,
-    env,
-    encoding: 'utf8',
-  });
-  assert.equal(
-    seedResult.status,
-    0,
-    `seed.js failed\nstdout:\n${seedResult.stdout}\nstderr:\n${seedResult.stderr}`
-  );
-
-  const pool = new Pool({ ...adminConfig, database: databaseName });
+  let databaseName;
+  let pool;
 
   try {
+    databaseName = createTestDatabaseName();
+    const env = { ...process.env, DB_NAME: databaseName };
+
+    // First, create the schema.
+    const setupResult = spawnSync(process.execPath, [setupScript], {
+      cwd: repoRoot,
+      env,
+      encoding: 'utf8',
+    });
+    assert.equal(
+      setupResult.status,
+      0,
+      `setupDatabase.js failed\nstdout:\n${setupResult.stdout}\nstderr:\n${setupResult.stderr}`
+    );
+
+    // Run the seed script.
+    const seedResult = spawnSync(process.execPath, [seedScript], {
+      cwd: repoRoot,
+      env,
+      encoding: 'utf8',
+    });
+    assert.equal(
+      seedResult.status,
+      0,
+      `seed.js failed\nstdout:\n${seedResult.stdout}\nstderr:\n${seedResult.stderr}`
+    );
+
+    pool = new Pool({ ...adminConfig, database: databaseName });
+
     // Verify product count.
     const { rows: productRows } = await pool.query('SELECT COUNT(*) AS cnt FROM products');
     assert.equal(Number(productRows[0].cnt), 15, 'Expected 15 seeded products');
@@ -120,7 +124,11 @@ test('seed.js inserts 15 products and a demo user into a fresh database', async 
     const { rows: afterReset } = await pool.query('SELECT COUNT(*) AS cnt FROM products');
     assert.equal(Number(afterReset[0].cnt), 15, 'Expected 15 products after --reset');
   } finally {
-    await pool.end();
-    await dropDatabase(databaseName);
+    if (pool) {
+      await pool.end();
+    }
+    if (databaseName) {
+      await dropDatabase(databaseName);
+    }
   }
 });

@@ -14,16 +14,9 @@
  *   DB_PORT / PGPORT, JWT_SECRET
  *
  * The test database name is derived from DB_NAME / PGDATABASE with a
- * "_integration_test" suffix (or a timestamp suffix when not set) so it
- * never collides with the application database.
+ * "_integration_test" suffix plus a per-process uniquifier so it never
+ * collides with the application database.
  */
-
-// ─── Database name must be set BEFORE any module that reads DB config is
-// ─── required (config.js and db/index.js are both lazy-required below).
-const baseName = process.env.DB_NAME || process.env.PGDATABASE || 'soda_store';
-const TEST_DB = `${baseName}_integration_test_${Date.now()}`;
-process.env.DB_NAME = TEST_DB;
-process.env.PGDATABASE = TEST_DB;
 
 // Provide a stable JWT secret for the test run if none is set.
 if (!process.env.JWT_SECRET) {
@@ -39,6 +32,7 @@ const { Pool } = require('pg');
 
 const repoRoot = path.resolve(__dirname, '..');
 const setupScript = path.join(repoRoot, 'setupDatabase.js');
+const baseName = process.env.DB_NAME || process.env.PGDATABASE || 'soda_store';
 const modulePathsToReset = [
   '../config',
   '../db',
@@ -58,6 +52,11 @@ const modulePathsToReset = [
   '../services/OrderService',
   '../services/UserService',
 ];
+
+function createTestDatabaseName() {
+  createTestDatabaseName.counter = (createTestDatabaseName.counter || 0) + 1;
+  return `${baseName}_integration_test_${Date.now()}_${process.pid}_${createTestDatabaseName.counter}`;
+}
 
 /** Connection options for the PostgreSQL admin user (connects to `postgres`). */
 const pgAdmin = {
@@ -81,10 +80,10 @@ async function pgAvailable() {
 }
 
 /** Create the isolated test database. */
-async function createTestDb() {
+async function createTestDb(databaseName) {
   const pool = new Pool({ ...pgAdmin, database: 'postgres' });
   try {
-    await pool.query(`CREATE DATABASE "${TEST_DB}"`);
+    await pool.query(`CREATE DATABASE "${databaseName}"`);
   } finally {
     await pool.end();
   }
@@ -94,16 +93,16 @@ async function createTestDb() {
  * Drop the isolated test database, terminating any lingering connections
  * first so that the DROP succeeds even if a connection is still open.
  */
-async function dropTestDb() {
+async function dropTestDb(databaseName) {
   const pool = new Pool({ ...pgAdmin, database: 'postgres' });
   try {
     await pool.query(
       `SELECT pg_terminate_backend(pid)
        FROM pg_stat_activity
        WHERE datname = $1 AND pid <> pg_backend_pid()`,
-      [TEST_DB]
+      [databaseName]
     );
-    await pool.query(`DROP DATABASE IF EXISTS "${TEST_DB}"`);
+    await pool.query(`DROP DATABASE IF EXISTS "${databaseName}"`);
   } finally {
     await pool.end();
   }
@@ -113,10 +112,10 @@ async function dropTestDb() {
  * Run setupDatabase.js as a child process so that it sees the test DB name
  * via the environment variables already set on `process.env`.
  */
-function runSetupDatabase() {
+function runSetupDatabase(databaseName) {
   const result = spawnSync(process.execPath, [setupScript], {
     cwd: repoRoot,
-    env: { ...process.env },
+    env: { ...process.env, DB_NAME: databaseName, PGDATABASE: databaseName },
     encoding: 'utf8',
   });
   if (result.status !== 0) {
